@@ -7,7 +7,7 @@ from google import genai
 from google.genai import types
 
 # --- CONFIGURATION ---
-WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbxeBKabG7Ecfig2WXNrP5o_k8F7TV8hhENA6JW03QgslWt-1pPguUoUwyCl10tncOAb/exec"
+WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzEyiDvDY3bjCi08PRKUu0gU14QEBM4am-Stzb8IlUOKS5LIX4ZzfG3QHTmzoOwwoKVww/exec"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 INTERVAL_SECONDS = 60 
 
