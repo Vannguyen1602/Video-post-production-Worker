@@ -43,11 +43,11 @@ def generate_image_kie(prompt, output_path="thumbnail.png"):
     """Sử dụng Imagen 3 (KIE) để tạo ảnh PNG thật."""
     try:
         print(f"🎨 KIE is drawing: {prompt[:50]}...")
-        # Sử dụng generate_images (số nhiều) theo chuẩn thư viện mới
+        # SỬA LỖI: Dùng GenerateImagesConfig (có 's')
         response = client.models.generate_images(
             model='imagen-3.0-generate-001',
             prompt=prompt,
-            config=types.GenerateImageConfig(
+            config=types.GenerateImagesConfig(
                 output_mime_type='image/png',
                 aspect_ratio='16:9',
                 number_of_images=1
@@ -62,8 +62,7 @@ def generate_image_kie(prompt, output_path="thumbnail.png"):
     return None
 
 def ai_post_production(topic, subtopic, script_content):
-    """AI Post-Production v5.6 (Full PNG Generation)."""
-    
+    """AI Post-Production v5.7 (Fixed Image SDK)."""
     prompt = f"""
     You are a World-Class Social Media Strategist. 
     TASK: Process content for a video based on the Script.
@@ -76,7 +75,7 @@ def ai_post_production(topic, subtopic, script_content):
     4. YOUTUBE TITLE: Golden 60 chars. [SEO Keywords] + (Emotional Hook). Year 2026.
     5. THUMBNAIL (IMAGEN PROMPT): 
        - Style: Professional 2D Animation style, vibrant colors, high contrast.
-       - Content: Illustrate the core concept of the script.
+       - Content: MUST illustrate the core concept of the script.
        - Text: MUST include a very bold, catchy Title text on the image.
        - Character Ref: Guider (Rectangular head, black suit, red badge) and Student (Round head, spiky hair, striped socks).
 
@@ -94,7 +93,6 @@ def ai_post_production(topic, subtopic, script_content):
     try:
         response = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
         text = response.text
-        
         def extract(tag):
             match = re.search(f'<{tag}>(.*?)</{tag}>', text, re.DOTALL)
             return match.group(1).strip() if match else ""
@@ -125,27 +123,23 @@ def ai_post_production(topic, subtopic, script_content):
     except: return None
 
 def run_worker():
-    print("🤖 Video Factory Worker v5.6 (KIE PNG Mode) started...")
+    print("🤖 Video Factory Worker v5.7 (SDK Fixed) started...")
     while True:
         tasks = get_tasks()
         if isinstance(tasks, list) and tasks:
             for task in tasks:
                 t_row = task.get('row')
                 if not t_row: continue
-                
-                print(f"⏳ Processing Row {t_row} (Content + PNG Image)...")
+                print(f"⏳ Processing Row {t_row}...")
                 update_task(t_row, {"status": "Pending"})
-                
                 res = ai_post_production("Video", "General", task.get('script'))
-                
                 if res:
                     res["status"] = "Done"
                     update_task(t_row, res)
-                    print(f"✅ Row {t_row} COMPLETED with PNG Link!")
+                    print(f"✅ Row {t_row} Done with PNG Link!")
                 else:
                     update_task(t_row, {"status": "Create"})
                     print(f"❌ Row {t_row} Failed.")
-        
         time.sleep(INTERVAL_SECONDS)
 
 if __name__ == "__main__":
