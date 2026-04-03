@@ -21,32 +21,44 @@ def get_tasks():
     except: return []
 
 def update_task(task_row, data):
-    """Cập nhật dữ liệu và trạng thái về Google Sheet."""
-    payload = {
-        "action": "update_task",
-        "row": task_row,
-        **data
-    }
+    payload = {"action": "update_task", "row": task_row, **data}
     try:
-        response = requests.post(WEBHOOK_URL, json=payload, timeout=30)
-        return response.status_code == 200
+        requests.post(WEBHOOK_URL, json=payload, timeout=30)
+        return True
     except: return False
 
-def ai_post_production(topic, subtopic, script_content):
-    """AI Post-Production v5.2 (Optimized Strategy)."""
+def download_image(url, filename):
+    """Tải ảnh tham chiếu từ URL."""
+    if not url or not url.startswith("http"): return None
+    try:
+        response = requests.get(url, timeout=20)
+        if response.status_code == 200:
+            with open(filename, "wb") as f:
+                f.write(response.content)
+            return filename
+    except: pass
+    return None
+
+def ai_post_production(topic, subtopic, script_content, guider_url=None, student_url=None):
+    """AI Post-Production v5.3 (Vision Reference Support)."""
+    
     prompt = f"""
     You are a World-Class Social Media Strategist. 
-    TASK: Process content for a video.
+    TASK: Process content for a video based on the Script.
     TOPIC: "{topic}"
-    SUBTOPIC: "{subtopic}"
     SCRIPT: {script_content}
 
     RULES (ALL ENGLISH):
     1. CAPTION (FB/IG/YT): Universal Hook < 125 chars. 3-5 lines body. CTA: Comment keyword.
     2. CAPTION TIKTOK: 1 Hook + 1 CTA. No filler. 
     3. HASHTAGS: 3-5 per platform. TikTok total length < 150 (Cap+Tags).
-    4. YOUTUBE TITLE: Golden 60 chars. [SEO] + (Emotional Hook). Year 2026.
-    5. THUMBNAIL: Animation style. Illustrate core script concept. Bold catchy Title on image. No State names.
+    4. YOUTUBE TITLE: Golden 60 chars. [SEO Keywords] + (Emotional Hook). Year 2026.
+    5. THUMBNAIL (KIE AI PROMPT): 
+       - Style: Professional 2D Animation. 
+       - Content: MUST illustrate the core concept of the script.
+       - Title: Prominent, catchy, and bold Title Text on the image.
+       - References: If Guider/Student images are provided in the context, follow their visual style/features. If not, be flexible based on the script.
+       - Important: No US State names.
 
     OUTPUT FORMAT:
     <CAPTION_GENERAL>...</CAPTION_GENERAL>
@@ -59,10 +71,20 @@ def ai_post_production(topic, subtopic, script_content):
     <THUMBNAIL_PROMPT>...</THUMBNAIL_PROMPT>
     """
 
+    contents = [prompt]
+    
+    # Xử lý ảnh tham chiếu (Vision)
+    for i, url in enumerate([guider_url, student_url]):
+        if url:
+            path = download_image(url, f"ref_{i}.jpg")
+            if path:
+                with open(path, "rb") as f:
+                    contents.append(types.Part.from_bytes(data=f.read(), mime_type="image/jpeg"))
+
     try:
         response = client.models.generate_content(
             model='gemini-2.0-flash',
-            contents=prompt,
+            contents=contents,
             config=types.GenerateContentConfig(temperature=0.7)
         )
         text = response.text
@@ -83,47 +105,30 @@ def ai_post_production(topic, subtopic, script_content):
     except: return None
 
 def run_worker():
-    print("🤖 Video Factory Worker v5.2 (Logic: Pending -> Done) started...")
+    print("🤖 Video Factory Worker v5.3 (Vision Support) started...")
     while True:
-        tasks_data = get_tasks()
-        
-        if isinstance(tasks_data, dict) and tasks_data.get("error") == "No tasks":
-            print("😴 No 'Create' tasks found.")
-            tasks = []
-        elif isinstance(tasks_data, list):
-            tasks = tasks_data
-        else:
-            tasks = []
-
-        if tasks:
+        tasks = get_tasks()
+        if isinstance(tasks, list) and tasks:
             print(f"Found {len(tasks)} tasks!")
             for task in tasks:
-                t_row = task.get('row') or task.get('id')
+                t_row = task.get('row')
                 if not t_row: continue
                 
-                topic = task.get('topic') or task.get('Topic') or 'General'
-                subtopic = task.get('subtopic') or task.get('Subtopic') or 'N/A'
-                script = task.get('script') or task.get('Script') or ''
-                
-                # BƯỚC 1: CHUYỂN SANG PENDING
-                print(f"⏳ Setting Row {t_row} to PENDING...")
+                print(f"⏳ Processing Row {t_row}...")
                 update_task(t_row, {"status": "Pending"})
                 
-                # BƯỚC 2: XỬ LÝ AI
-                print(f"🧠 Processing AI for Row {t_row}: {topic}...")
-                processed_data = ai_post_production(topic, subtopic, script)
+                res = ai_post_production(
+                    task.get('topic'), "General", task.get('script'),
+                    task.get('guider_img'), task.get('student_img')
+                )
                 
-                if processed_data:
-                    # BƯỚC 3: ĐẨY DỮ LIỆU VÀ CHUYỂN SANG DONE
-                    processed_data["status"] = "Done"
-                    if update_task(t_row, processed_data):
-                        print(f"✅ Row {t_row} COMPLETED (Done).")
-                    else:
-                        print(f"❌ Failed to push result for Row {t_row}.")
+                if res:
+                    res["status"] = "Done"
+                    update_task(t_row, res)
+                    print(f"✅ Row {t_row} Done.")
                 else:
-                    # NẾU LỖI THÌ TRẢ VỀ CREATE ĐỂ LẦN SAU THỬ LẠI
                     update_task(t_row, {"status": "Create"})
-                    print(f"⚠️ AI Error. Reverted Row {t_row} to Create.")
+                    print(f"❌ Row {t_row} Failed.")
         
         time.sleep(INTERVAL_SECONDS)
 
