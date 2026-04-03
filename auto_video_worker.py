@@ -28,7 +28,6 @@ def update_task(task_row, data):
     except: return False
 
 def upload_to_catbox(file_path):
-    """Upload file PNG lên Catbox và trả về link trực tiếp."""
     if not os.path.exists(file_path): return None
     try:
         url = "https://catbox.moe/user/api.php"
@@ -39,30 +38,34 @@ def upload_to_catbox(file_path):
         return response.text.strip() if response.status_code == 200 else None
     except: return None
 
-def generate_image_kie(prompt, output_path="thumbnail.png"):
-    """Sử dụng Imagen 3 (KIE) để tạo ảnh PNG thật."""
-    try:
-        print(f"🎨 KIE is drawing: {prompt[:50]}...")
-        # SỬA LỖI: Dùng GenerateImagesConfig (có 's')
-        response = client.models.generate_images(
-            model='imagen-3.0-generate-001',
-            prompt=prompt,
-            config=types.GenerateImagesConfig(
-                output_mime_type='image/png',
-                aspect_ratio='16:9',
-                number_of_images=1
+def generate_image_ai(prompt, output_path="thumbnail.png"):
+    """Thử nghiệm tạo ảnh với các model Imagen khả dụng."""
+    # Thử lần lượt các model từ mới đến cũ
+    models_to_try = ['imagen-3.0-generate-001', 'imagen-3.0-capability-001', 'imagen-2.0-generate-001']
+    
+    for model_name in models_to_try:
+        try:
+            print(f"🎨 Trying to draw with {model_name}...")
+            response = client.models.generate_images(
+                model=model_name,
+                prompt=prompt,
+                config=types.GenerateImagesConfig(
+                    output_mime_type='image/png',
+                    aspect_ratio='16:9',
+                    number_of_images=1
+                )
             )
-        )
-        if response.generated_images:
-            with open(output_path, "wb") as f:
-                f.write(response.generated_images[0].image_bytes)
-            return output_path
-    except Exception as e:
-        print(f"❌ KIE Drawing Error: {e}")
+            if response.generated_images:
+                with open(output_path, "wb") as f:
+                    f.write(response.generated_images[0].image_bytes)
+                return output_path
+        except Exception as e:
+            print(f"⚠️ {model_name} failed: {str(e)[:100]}")
+            continue
     return None
 
 def ai_post_production(topic, subtopic, script_content):
-    """AI Post-Production v5.7 (Fixed Image SDK)."""
+    """AI Post-Production v5.8 (Multi-Model Image Gen)."""
     prompt = f"""
     You are a World-Class Social Media Strategist. 
     TASK: Process content for a video based on the Script.
@@ -77,7 +80,7 @@ def ai_post_production(topic, subtopic, script_content):
        - Style: Professional 2D Animation style, vibrant colors, high contrast.
        - Content: MUST illustrate the core concept of the script.
        - Text: MUST include a very bold, catchy Title text on the image.
-       - Character Ref: Guider (Rectangular head, black suit, red badge) and Student (Round head, spiky hair, striped socks).
+       - Characters: Guider (black suit) and Student (round head).
 
     OUTPUT FORMAT:
     <CAPTION_GENERAL>...</CAPTION_GENERAL>
@@ -107,10 +110,10 @@ def ai_post_production(topic, subtopic, script_content):
             "title youtube": extract("TITLE_YOUTUBE")
         }
         
-        # THỰC HIỆN VẼ ẢNH VÀ UPLOAD
+        # THỰC HIỆN VẼ ẢNH
         img_prompt = extract("THUMBNAIL_PROMPT")
         if img_prompt:
-            img_file = generate_image_kie(img_prompt)
+            img_file = generate_image_ai(img_prompt)
             if img_file:
                 url = upload_to_catbox(img_file)
                 if url:
@@ -123,7 +126,7 @@ def ai_post_production(topic, subtopic, script_content):
     except: return None
 
 def run_worker():
-    print("🤖 Video Factory Worker v5.7 (SDK Fixed) started...")
+    print("🤖 Video Factory Worker v5.8 (Gemini Image Gen) started...")
     while True:
         tasks = get_tasks()
         if isinstance(tasks, list) and tasks:
@@ -136,7 +139,7 @@ def run_worker():
                 if res:
                     res["status"] = "Done"
                     update_task(t_row, res)
-                    print(f"✅ Row {t_row} Done with PNG Link!")
+                    print(f"✅ Row {t_row} Done with AI Image Link!")
                 else:
                     update_task(t_row, {"status": "Create"})
                     print(f"❌ Row {t_row} Failed.")
