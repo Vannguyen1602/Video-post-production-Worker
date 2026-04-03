@@ -9,61 +9,71 @@ from google.genai import types
 # --- CONFIGURATION ---
 WEBHOOK_URL = "https://script.google.com/macros/s/AKfycxvo8PlYnz2MeKTltiPDNBr8uihoxy583YGECG4F5p0BLKQRQ7Q1PcXdEp8qSeIPjvfSA/exec"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-INTERVAL_SECONDS = 60 # Kiểm tra sheet mỗi 1 phút
+INTERVAL_SECONDS = 60 
 
 # --- AI CLIENT ---
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 def get_tasks():
-    """Lấy danh sách task từ Google Sheet."""
     try:
         response = requests.get(WEBHOOK_URL, params={"action": "get_tasks"}, timeout=30)
-        if response.status_code == 200:
-            return response.json()
-        return []
-    except Exception as e:
-        print(f"Error getting tasks: {e}")
-        return []
+        return response.json() if response.status_code == 200 else []
+    except: return []
 
-def update_task(task_id, caption, hashtags, thumbnail_prompt):
-    """Cập nhật kết quả về Google Sheet (Gửi Prompt cho KIE AI)."""
+def update_task(task_id, data):
+    """Cập nhật toàn bộ các cột mới về Google Sheet."""
     payload = {
         "action": "update_task",
         "id": task_id,
-        "caption": caption,
-        "hashtags": hashtags,
-        "thumbnail": thumbnail_prompt, # Gửi PROMPT để KIE AI vẽ
-        "status": "Done"
+        "status": "Done",
+        **data
     }
     try:
         response = requests.post(WEBHOOK_URL, json=payload, timeout=30)
         return response.status_code == 200
-    except Exception as e:
-        print(f"Error updating task {task_id}: {e}")
-        return False
+    except: return False
 
-def ai_post_production(topic, subtopic, state_name):
-    """Sử dụng Gemini AI để tạo Prompt cho KIE AI."""
+def ai_post_production(topic, subtopic, script_content):
+    """Quy trình AI Post-Production mới nhất (Đa nền tảng + Tối ưu Viral)."""
     prompt = f"""
-    You are an Expert Video Post-Production Specialist.
-    TASK: Process content for a TikTok/Reels video about DMV Driver Manual for the state of {state_name}.
-    TOPIC: {topic}
-    SUBTOPIC: {subtopic}
+    You are a World-Class Social Media Strategist and Video Editor. 
+    TASK: Process content for a video based on this topic: "{topic}" and subtopic: "{subtopic}".
+    SCRIPT CONTENT: {script_content}
 
-    RULES:
-    1. CAPTION: Hook the audience, very engaging. DO NOT include hashtags inside the caption. Use Vietnamese.
-    2. HASHTAGS: Only English hashtags, highly relevant to DMV, {state_name}, and driving tests. (At least 10 hashtags).
-    3. THUMBNAIL PROMPT (FOR KIE AI):
-       - Characters: Guider (Rectangular head, sharp nose, black suit, red tie/badge) and Student (Round head, spiky hair, striped socks).
-       - Interaction: Dynamic and funny interaction related to the topic "{topic}".
-       - Expressions: Funny, exaggerated reactions (surprised, happy, or thinking hard).
-       - Context: Visual illustration of the driving rule in {state_name}.
-       - Style: 2D Flat vector art, bold outlines, vibrant colors, satirical animated vibe, high contrast.
-       - Title Text: Extract a shock/catchy title from the content for the thumbnail.
+    RULES (ALL OUTPUT MUST BE IN ENGLISH):
+
+    1. CAPTION (FB/IG/YT): 
+       - Line 1-2 (The Hook): Max 125 chars. Must include main keywords and curiosity.
+       - Body: 3-5 lines max. Use bullet points and emojis (✅, 💡, 🚀, 🎯).
+       - Universal CTA: Do NOT include links. Ask users to comment a specific keyword to get the link/resource.
+    
+    2. CAPTION TIKTOK:
+       - Format: 1 Hook sentence + 1 CTA sentence.
+       - Tone: Direct, energetic, no filler. Max 1-2 emojis.
+    
+    3. HASHTAGS (3-5 per platform, niche-specific):
+       - TikTok: Must be short. (Note: TikTok Caption + Hashtags must be < 150 chars total).
+       - Facebook, YouTube, Instagram: Separate lists.
+
+    4. YOUTUBE TITLE:
+       - Max 100 chars, but front-load most important info in first 60 chars.
+       - Format: [SEO Keywords] + (Emotional Hook / Value Promise).
+       - Include year "2026". Use Power Words (Latest, Secret, Hack, Mistake).
+       - Visual Formatting: Use [ ], ( ), or |.
+
+    5. THUMBNAIL PROMPT (KIE AI):
+       - Style: Professional 2D Animation style. 
+       - Content: Illustrate the core concept of the script. Do NOT mention any US State names.
+       - Focus: Prominent, catchy, and bold Title Text on the image. High contrast, vibrant colors.
 
     OUTPUT FORMAT (XML TAGS):
-    <CAPTION>...</CAPTION>
-    <HASHTAGS>...</HASHTAGS>
+    <CAPTION_GENERAL>...</CAPTION_GENERAL>
+    <CAPTION_TIKTOK>...</CAPTION_TIKTOK>
+    <HASHTAG_TIKTOK>...</HASHTAG_TIKTOK>
+    <HASHTAG_FACEBOOK>...</HASHTAG_FACEBOOK>
+    <HASHTAG_YOUTUBE>...</HASHTAG_YOUTUBE>
+    <HASHTAG_INSTAGRAM>...</HASHTAG_INSTAGRAM>
+    <TITLE_YOUTUBE>...</TITLE_YOUTUBE>
     <THUMBNAIL_PROMPT>...</THUMBNAIL_PROMPT>
     """
 
@@ -75,39 +85,52 @@ def ai_post_production(topic, subtopic, state_name):
         )
         text = response.text
         
-        caption = re.search(r'<CAPTION>(.*?)</CAPTION>', text, re.DOTALL).group(1).strip()
-        hashtags = re.search(r'<HASHTAGS>(.*?)</HASHTAGS>', text, re.DOTALL).group(1).strip()
-        thumb = re.search(r'<THUMBNAIL_PROMPT>(.*?)</THUMBNAIL_PROMPT>', text, re.DOTALL).group(1).strip()
+        def extract(tag):
+            match = re.search(f'<{tag}>(.*?)</{tag}>', text, re.DOTALL)
+            return match.group(1).strip() if match else ""
+
+        data = {
+            "caption": extract("CAPTION_GENERAL"),
+            "caption_tiktok": extract("CAPTION_TIKTOK"),
+            "hashtag_tiktok": extract("HASHTAG_TIKTOK"),
+            "hashtag_facebook": extract("HASHTAG_FACEBOOK"),
+            "hashtag_youtube": extract("HASHTAG_YOUTUBE"),
+            "hashtag_instagram": extract("HASHTAG_INSTAGRAM"),
+            "Titile youtube": extract("TITLE_YOUTUBE"), # Matching sheet column name spelling
+            "thumbnail": extract("THUMBNAIL_PROMPT")
+        }
         
-        return caption, hashtags, thumb
+        # Validation: TikTok limit
+        if len(data["caption_tiktok"]) + len(data["hashtag_tiktok"]) > 145:
+            data["caption_tiktok"] = data["caption_tiktok"][:100] + "..."
+            
+        return data
     except Exception as e:
         print(f"AI Error: {e}")
-        return None, None, None
+        return None
 
 def run_worker():
-    print("🤖 Video Factory Worker (KIE AI Mode) started...")
+    print("🤖 Video Factory Worker v5.0 (Multi-Platform Strategist) started...")
     while True:
         tasks = get_tasks()
         if tasks:
             print(f"Found {len(tasks)} tasks to process!")
             for task in tasks:
                 t_id = task.get('id')
-                topic = task.get('topic', 'DMV Practice Test')
-                subtopic = task.get('subtopic', 'General Knowledge')
-                state = task.get('state', 'USA')
+                topic = task.get('topic', 'General')
+                subtopic = task.get('subtopic', 'General')
+                script = task.get('script', '') # Assuming script is provided in task
                 
-                print(f"Processing Task {t_id}: {state} - {topic}...")
-                cap, tags, thumb_prompt = ai_post_production(topic, subtopic, state)
+                print(f"Processing Task {t_id}: {topic}...")
+                processed_data = ai_post_production(topic, subtopic, script)
                 
-                if cap and tags and thumb_prompt:
-                    if update_task(t_id, cap, tags, thumb_prompt):
-                        print(f"✅ Task {t_id} completed and pushed to Sheet.")
+                if processed_data:
+                    if update_task(t_id, processed_data):
+                        print(f"✅ Task {t_id} optimized for all platforms and pushed.")
                     else:
-                        print(f"❌ Failed to update Task {t_id} on Sheet.")
-                else:
-                    print(f"⚠️ Failed to process Task {t_id} with AI.")
+                        print(f"❌ Failed to update Task {t_id}.")
         else:
-            print("😴 No tasks found. Sleeping...")
+            print("😴 Waiting for 'Create' status on Sheet...")
             
         time.sleep(INTERVAL_SECONDS)
 
