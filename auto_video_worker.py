@@ -27,38 +27,57 @@ def update_task(task_row, data):
         return True
     except: return False
 
-def download_image(url, filename):
-    """Tải ảnh tham chiếu từ URL."""
-    if not url or not url.startswith("http"): return None
+def upload_to_catbox(file_path):
+    """Upload file PNG lên Catbox và trả về link trực tiếp."""
+    if not os.path.exists(file_path): return None
     try:
-        response = requests.get(url, timeout=20)
-        if response.status_code == 200:
-            with open(filename, "wb") as f:
-                f.write(response.content)
-            return filename
-    except: pass
-    return None
+        url = "https://catbox.moe/user/api.php"
+        with open(file_path, 'rb') as f:
+            files = {'fileToUpload': f}
+            data = {'reqtype': 'fileupload'}
+            response = requests.post(url, files=files, data=data, timeout=60)
+        return response.text.strip() if response.status_code == 200 else None
+    except: return None
+
+def generate_image_ai(prompt, output_path="thumbnail.png"):
+    """Sử dụng Imagen 3 để tạo ảnh PNG từ Prompt."""
+    try:
+        print(f"🎨 Generating Image with Imagen 3...")
+        response = client.models.generate_image(
+            model='imagen-3.0-generate-001',
+            prompt=prompt,
+            config=types.GenerateImageConfig(
+                output_mime_type='image/png',
+                aspect_ratio='16:9'
+            )
+        )
+        # Lưu file ảnh
+        for i, generated_image in enumerate(response.generated_images):
+            with open(output_path, "wb") as f:
+                f.write(generated_image.image_bytes)
+            return output_path
+    except Exception as e:
+        print(f"❌ Image Gen Error: {e}")
+        return None
 
 def ai_post_production(topic, subtopic, script_content, guider_url=None, student_url=None):
-    """AI Post-Production v5.3 (Vision Reference Support)."""
+    """AI Post-Production v5.4 (Full Image Gen + Catbox)."""
     
     prompt = f"""
     You are a World-Class Social Media Strategist. 
     TASK: Process content for a video based on the Script.
-    TOPIC: "{topic}"
     SCRIPT: {script_content}
 
     RULES (ALL ENGLISH):
     1. CAPTION (FB/IG/YT): Universal Hook < 125 chars. 3-5 lines body. CTA: Comment keyword.
     2. CAPTION TIKTOK: 1 Hook + 1 CTA. No filler. 
-    3. HASHTAGS: 3-5 per platform. TikTok total length < 150 (Cap+Tags).
-    4. YOUTUBE TITLE: Golden 60 chars. [SEO Keywords] + (Emotional Hook). Year 2026.
-    5. THUMBNAIL (KIE AI PROMPT): 
-       - Style: Professional 2D Animation. 
+    3. HASHTAGS: 3-5 per platform. 
+    4. YOUTUBE TITLE: Golden 60 chars. [SEO] + (Emotional Hook). Year 2026.
+    5. THUMBNAIL (IMAGEN PROMPT): 
+       - Style: Professional 2D Animation style, vibrant colors, high contrast.
        - Content: MUST illustrate the core concept of the script.
-       - Title: Prominent, catchy, and bold Title Text on the image.
-       - References: If Guider/Student images are provided in the context, follow their visual style/features. If not, be flexible based on the script.
-       - Important: No US State names.
+       - Text: MUST include a very bold, catchy Title text on the image.
+       - Character Ref: If reference images are provided, follow their style.
 
     OUTPUT FORMAT:
     <CAPTION_GENERAL>...</CAPTION_GENERAL>
@@ -72,60 +91,57 @@ def ai_post_production(topic, subtopic, script_content, guider_url=None, student
     """
 
     contents = [prompt]
-    
-    # Xử lý ảnh tham chiếu (Vision)
-    for i, url in enumerate([guider_url, student_url]):
-        if url:
-            path = download_image(url, f"ref_{i}.jpg")
-            if path:
-                with open(path, "rb") as f:
-                    contents.append(types.Part.from_bytes(data=f.read(), mime_type="image/jpeg"))
+    # (Bỏ qua phần đính kèm ảnh vào prompt text để tập trung vào Image Gen độc lập)
 
     try:
-        response = client.models.generate_content(
-            model='gemini-2.0-flash',
-            contents=contents,
-            config=types.GenerateContentConfig(temperature=0.7)
-        )
+        response = client.models.generate_content(model='gemini-2.0-flash', contents=contents)
         text = response.text
+        
         def extract(tag):
             match = re.search(f'<{tag}>(.*?)</{tag}>', text, re.DOTALL)
             return match.group(1).strip() if match else ""
 
-        return {
+        results = {
             "caption": extract("CAPTION_GENERAL"),
             "caption_tiktok": extract("CAPTION_TIKTOK"),
             "hashtag_tiktok": extract("HASHTAG_TIKTOK"),
             "hashtag_facebook": extract("HASHTAG_FACEBOOK"),
             "hashtag_youtube": extract("HASHTAG_YOUTUBE"),
             "hashtag_instagram": extract("HASHTAG_INSTAGRAM"),
-            "title youtube": extract("TITLE_YOUTUBE"),
-            "thumbnail": extract("THUMBNAIL_PROMPT")
+            "title youtube": extract("TITLE_YOUTUBE")
         }
+        
+        # BƯỚC TẠO ẢNH THẬT
+        img_prompt = extract("THUMBNAIL_PROMPT")
+        if img_prompt:
+            local_file = generate_image_ai(img_prompt)
+            if local_file:
+                catbox_link = upload_to_catbox(local_file)
+                results["thumbnail"] = catbox_link
+            else:
+                results["thumbnail"] = "Error Generating Image"
+        
+        return results
     except: return None
 
 def run_worker():
-    print("🤖 Video Factory Worker v5.3 (Vision Support) started...")
+    print("🤖 Video Factory Worker v5.4 (Image Generation Mode) started...")
     while True:
         tasks = get_tasks()
         if isinstance(tasks, list) and tasks:
-            print(f"Found {len(tasks)} tasks!")
             for task in tasks:
                 t_row = task.get('row')
                 if not t_row: continue
                 
-                print(f"⏳ Processing Row {t_row}...")
+                print(f"⏳ Processing Row {t_row} (Generating Content + Image)...")
                 update_task(t_row, {"status": "Pending"})
                 
-                res = ai_post_production(
-                    task.get('topic'), "General", task.get('script'),
-                    task.get('guider_img'), task.get('student_img')
-                )
+                res = ai_post_production("Video", "General", task.get('script'))
                 
                 if res:
                     res["status"] = "Done"
                     update_task(t_row, res)
-                    print(f"✅ Row {t_row} Done.")
+                    print(f"✅ Row {t_row} Done with PNG Thumbnail!")
                 else:
                     update_task(t_row, {"status": "Create"})
                     print(f"❌ Row {t_row} Failed.")
