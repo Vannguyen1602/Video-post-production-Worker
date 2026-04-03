@@ -1,0 +1,15 @@
+services:
+  video-worker:
+    build: .
+    container_name: video-worker
+    restart: unless-stopped
+    # Sử dụng file .env riêng biệt (hoặc truyền qua biến hệ thống trên VPS)
+    env_file:
+      - .env
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
